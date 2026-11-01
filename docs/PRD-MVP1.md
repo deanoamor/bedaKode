@@ -1,280 +1,374 @@
 # PRD: bedaKode — MVP 1 (Bedah Repo)
 
-> Webmu dibuat AI dan sudah jalan, tapi kamu belum paham kodenya? Tempel link GitHub-nya. Kami jelaskan setiap file dan baris dengan bahasa yang mudah: fungsinya apa, kenapa ditulis begitu, terhubung ke mana, dan aman diubah atau tidak.
+> Webmu dibuat AI dan sudah jalan, tapi kamu belum paham kodenya? Tempel link GitHub-nya. Kami tunjukkan alur kerjanya, dari halaman ke route, controller, sampai database, dan menjelaskan setiap bagiannya dengan bahasa yang mudah.
 
-Dokumen ini menggantikan cakupan PRD awal untuk rilis pertama. Fitur "klik elemen di web live" dipindah ke MVP 2 (lihat bagian 9).
+MVP 1 dibagi dua bagian:
+
+| Bagian | Isi | Biaya AI | Perkiraan waktu |
+|---|---|---|---|
+| **Part 1: Bedah Statis** | Analisis kode tanpa AI: route, alur panggilan, pola yang dikenali, penjelasan template, dampak perubahan | Tidak ada | ± 3 minggu |
+| **Part 2: Narasi AI** | AI menarasikan fakta dari Part 1: "ini apa", "kenapa begini", "aman diubah?", cari fitur dengan bahasa bebas | Ada (Claude API) | ± 1–2 minggu |
+
+Fitur "klik elemen di web live" (screenshot) dipindah ke MVP 2.
 
 ---
 
 ## 1. Ringkasan
-- **Masalah:** Vibe coder (pengguna Lovable, Bolt, v0, Cursor) punya web yang jalan, tapi tidak paham kodenya. Mau ubah sedikit saja takut rusak. Tanya ke chatbot pun bingung harus mulai dari file mana.
-- **Solusi MVP 1:** User menempel URL repo GitHub (public). Sistem mengambil kode, mendeteksi stack, mengindeks file, memetakan hubungan antar file, lalu membuat **peta proyek**. Setelah itu user bisa:
-  1. membaca ringkasan proyek dan urutan belajar,
-  2. klik file atau blok baris kode untuk mendapat penjelasan,
-  3. bertanya "kode untuk X ada di mana?".
+- **Masalah:** Vibe coder (pengguna Lovable, Bolt, v0, Cursor) punya web yang jalan, tapi tidak paham kodenya. Mau ubah sedikit saja takut rusak, dan bingung harus mulai baca dari file mana.
+- **Solusi:** User menempel URL repo GitHub (public). Sistem mengurai kode dan membangun **peta alur**: route mana memanggil handler mana, komponen mana merender apa, form mana mengirim ke endpoint mana, dan file mana menyentuh database. Setiap pola yang dikenali dijelaskan dengan bahasa awam, dan ditautkan ke docs resmi sesuai versi.
 - **Target user:** Pemula non-programmer atau semi-programmer yang membangun web dengan bantuan AI.
+- **Prinsip produk:**
+  - **Fakta dulu, narasi kemudian.** Alur dan relasi diambil dari kode (parser), bukan tebakan. AI (Part 2) hanya menarasikan fakta tersebut, jadi risiko halusinasi kecil.
+  - **Selalu ada isi.** Setiap file yang dibuka minimal menampilkan perannya, posisinya di alur, siapa yang memanggil dan dipanggil, dan istilah yang relevan.
 - **Pembeda dari ChatGPT/Cursor:**
-  - peta proyek otomatis tanpa perlu bertanya,
-  - pencarian berdasarkan fitur,
-  - bagian "kenapa ditulis begini" dan "aman diubah?",
+  - peta alur otomatis yang bisa diklik,
+  - dampak perubahan ("file ini dipakai oleh …"),
   - Bahasa Indonesia yang awam,
-  - link docs resmi yang dikurasi sesuai versi (bukan karangan AI),
+  - link docs resmi yang dikurasi sesuai versi,
+  - tier statis gratis tanpa biaya AI,
   - hasil bisa dibagikan lewat link.
-- **Model bisnis (nanti):** Gratis untuk repo public kecil. Berbayar untuk repo private, repo besar, dan kuota lebih banyak.
+- **Model bisnis (nanti):** Statis gratis. Narasi AI memakai kuota harian, lalu nanti berbayar untuk kuota lebih, repo private, dan repo besar.
 
-## 2. Tujuan dan non-tujuan
-**Tujuan MVP 1**
+## 2. Keputusan yang sudah diambil
+| Topik | Keputusan |
+|---|---|
+| Nama/domain | bedaKode, `bedakode.com` atau `bedakode.id` (cek ketersediaan) |
+| Bahasa penjelasan | Indonesia. Struktur data siap untuk multi-bahasa |
+| Level penjelasan | Dua level: **pemula** dan **teknis** |
+| Stack dukungan penuh | **Laravel (Blade)** dan **Next.js** (App Router + Pages Router) |
+| Stack dukungan dasar | React/Vite dan HTML biasa: graf import dan pola dasar saja |
+| Parser | PHP: `nikic/php-parser`. JS/TS/JSX/TSX: skrip Node memakai TypeScript Compiler API. Blade: regex direktif |
+| Model AI (Part 2) | Claude Haiku 5.5 untuk cari fitur, Claude Sonnet 5.5 untuk narasi. Bisa naik ke Claude Opus 5.5 kalau hasil uji kualitasnya kurang |
+| Biaya AI (Part 2) | Ditagih lewat **Claude API** (Claude Console, bayar per token), **terpisah dari langganan Claude Pro**. Target < $0,20 per analisis, batas global $5/hari, plus spend limit di Console |
+| Hosting | VPS 2 vCPU / 4 GB RAM, region Singapura atau lokal, plus Cloudflare. Butuh PHP 8.3, Node 20, MySQL 8. Tidak butuh Chromium |
+| Kurasi awal | ±40 aturan pola, ±40 konsep docs, ±40 istilah glosarium |
+
+## 3. Tujuan dan non-tujuan
+**Tujuan Part 1**
 1. User tanpa login bisa menganalisis repo public dan mendapat viewer interaktif dalam < 1 menit untuk repo kecil.
-2. Setiap analisis menghasilkan peta proyek: stack, struktur folder, titik masuk, dan urutan baca yang disarankan.
-3. Klik file atau seleksi baris menghasilkan penjelasan terstruktur, lengkap dengan link ke baris di GitHub.
-4. User bisa bertanya "di mana kode untuk X?" dan mendapat daftar file dan baris yang relevan.
-5. Hasil bisa dibagikan lewat link.
-6. Biaya AI terkendali: AI dipanggil saat analisis (1x untuk peta proyek) dan saat user bertanya/klik, dan semua hasil di-cache.
+2. Peta proyek statis: stack, fungsi folder, titik masuk, daftar route, dan urutan baca yang disarankan.
+3. Untuk Laravel dan Next.js: memilih sebuah route menampilkan **diagram alur** dari route ke handler, lalu ke panggilan berikutnya (validasi, auth, database, redirect, response).
+4. Setiap file menampilkan perannya, simbol di dalamnya, relasi, pola yang dikenali beserta penjelasan template, dan dampak perubahan.
+5. Cari fitur lewat kata kunci, sinonim, nama route, dan nama file.
+6. Hasil bisa dibagikan lewat link.
+
+**Tujuan Part 2**
+1. Tombol "Jelaskan lebih dalam" di file, blok baris, dan route. AI menulis "ini apa", "cara kerja", "kenapa begini", dan "aman diubah?" berdasarkan fakta statis.
+2. Peta proyek dinarasikan AI.
+3. Cari fitur dengan bahasa bebas.
+4. Biaya terkendali lewat cache, kuota, dan batas global.
 
 **Non-tujuan MVP 1**
-- URL web live, screenshot, klik elemen (pindah ke MVP 2).
+- URL web live, screenshot, klik elemen (MVP 2).
 - Repo private, login, pembayaran.
 - Mengedit kode atau membuat PR.
-- Dukungan penuh untuk semua framework. Fokus dukungan penuh: **HTML biasa, React/Vite, Next.js, Laravel (Blade)**. Repo lain tetap bisa dianalisis dengan "dukungan dasar" (penjelasan jalan, tapi pemetaan relasi file terbatas).
-- Bahasa selain Indonesia (struktur data disiapkan untuk multi-bahasa).
+- Analisis runtime (menjalankan kode). Semuanya statis.
+- Resolusi sempurna untuk kode dinamis (route dari variabel, DI kompleks, event/listener). Bagian yang tidak bisa dilacak ditandai "tidak terlacak otomatis".
 
-## 3. User story
-| # | Sebagai | Aku ingin | Supaya |
-|---|---|---|---|
-| 1 | Vibe coder | menempel URL repo lalu klik Analisis | tahu isi proyekku tanpa daftar |
-| 2 | Vibe coder | membaca ringkasan proyek dan fungsi tiap folder | punya gambaran besar sebelum masuk ke detail |
-| 3 | Vibe coder | mendapat urutan file yang sebaiknya dibaca | tahu harus mulai dari mana |
-| 4 | Vibe coder | klik sebuah file | tahu file ini fungsinya apa |
-| 5 | Vibe coder | memblok beberapa baris kode | tahu kode itu ngapain dan kenapa ditulis begitu |
-| 6 | Vibe coder | melihat file mana yang memanggil dan dipanggil | paham alurnya |
-| 7 | Vibe coder | tahu apa yang terpengaruh kalau kode diubah | berani mengubah tanpa takut rusak |
-| 8 | Vibe coder | bertanya "kode login di mana?" | langsung ke bagian yang kucari |
-| 9 | Vibe coder | melihat istilah teknis dijelaskan dengan bahasa awam | tidak bingung dengan jargon |
-| 10 | Vibe coder | dapat link docs resmi yang sesuai versi | bisa belajar lebih dalam |
-| 11 | Vibe coder | memilih level penjelasan (pemula/teknis) | sesuai kemampuanku |
-| 12 | Vibe coder | membagikan hasil lewat link | menunjukkan ke teman atau mentor |
-| 13 | Vibe coder | memberi nilai 👍/👎 pada penjelasan | penjelasan makin bagus |
+## 4. User story
+| # | Part | Sebagai | Aku ingin | Supaya |
+|---|---|---|---|---|
+| 1 | 1 | Vibe coder | menempel URL repo lalu klik Analisis | tahu isi proyekku tanpa daftar |
+| 2 | 1 | Vibe coder | melihat ringkasan proyek dan fungsi tiap folder | punya gambaran besar |
+| 3 | 1 | Vibe coder | melihat daftar halaman dan endpoint (route) | tahu apa saja yang ada di webku |
+| 4 | 1 | Vibe coder | klik sebuah route dan melihat diagram alurnya | paham perjalanan data dari klik sampai database |
+| 5 | 1 | Vibe coder | membuka file dan tahu perannya | tahu file ini fungsinya apa |
+| 6 | 1 | Vibe coder | melihat pola yang dikenali dengan bahasa awam | paham bagian kode yang umum |
+| 7 | 1 | Vibe coder | tahu file mana yang memakai file ini | tahu dampaknya kalau kuubah |
+| 8 | 1 | Vibe coder | mencari "login" dan langsung ke file terkait | tidak tersesat |
+| 9 | 1 | Vibe coder | melihat istilah dijelaskan dan link docs resmi | bisa belajar lebih dalam |
+| 10 | 1 | Vibe coder | memilih level penjelasan (pemula/teknis) | sesuai kemampuanku |
+| 11 | 1 | Vibe coder | membagikan hasil lewat link | menunjukkan ke teman atau mentor |
+| 12 | 1 | Vibe coder | memberi nilai 👍/👎 | penjelasan makin bagus |
+| 13 | 2 | Vibe coder | memblok baris dan klik "Jelaskan lebih dalam" | paham logika khusus di kodeku |
+| 14 | 2 | Vibe coder | tahu kenapa kode ditulis begitu | belajar pola yang baik |
+| 15 | 2 | Vibe coder | bertanya "bagian bayar ada di mana?" | menemukan kode dengan bahasaku sendiri |
 
-## 4. Fitur MVP 1
+---
 
-### 4.1 Form submit
+# PART 1: BEDAH STATIS
+
+## 5. Fitur Part 1
+
+### 5.1 Form submit
 - Satu input: URL GitHub (`https://github.com/{owner}/{repo}`, opsional `/tree/{branch}`).
 - Cloudflare Turnstile dan rate limit per IP.
-- Kalau analisis untuk commit yang sama sudah ada dan belum kedaluwarsa, langsung arahkan ke hasil yang ada tanpa memproses ulang.
+- Kalau analisis untuk commit yang sama sudah ada dan belum kedaluwarsa, langsung arahkan ke hasil yang ada.
 
-### 4.2 Pipeline analisis (queue)
-1. **Validasi:** hanya host `github.com`. Cek repo ada dan public lewat GitHub API (pakai token server supaya tidak kena limit 60 request/jam). Ambil default branch dan commit SHA terbaru.
+### 5.2 Pipeline analisis (queue)
+1. **Validasi:** hanya host `github.com`. Cek repo public lewat GitHub API (pakai token server). Ambil branch dan commit SHA.
 2. **Fetch:** download zip (codeload). Ekstrak dengan aman:
    - tolak path traversal dan symlink,
-   - batasi total ukuran setelah ekstrak dan jumlah entri (cegah zip bomb).
-3. **Filter:** buang folder hasil install dan build (`node_modules`, `vendor`, `.git`, `dist`, `build`, `.next`, `out`, `coverage`), binary, gambar, font, dan file > 1 MB. **Sembunyikan file sensitif** (`.env*`, `*.pem`, `*.key`, `id_rsa*`, dsb.): tidak disimpan dan tidak ditampilkan.
-4. **Deteksi stack dan versi** dari `package.json`, `composer.json`, dan lockfile (lockfile dibaca untuk versi, tapi tidak diindeks).
-5. **Indeks file:** simpan isi teks dan buat indeks full-text. Tidak memakai AI.
-6. **Petakan relasi file (statis, tanpa AI):**
-   - `import`/`require`/`export from` (JS/TS),
-   - `use`/`include`/`require` (PHP),
-   - `@extends`/`@include`/`<x-component>` (Blade),
-   - route ke controller (Laravel `routes/*.php`),
-   - routing file-based (Next.js `app/` dan `pages/`).
-7. **Tandai titik masuk:** misalnya `index.html`, `src/main.tsx`, `app/layout.tsx`, `app/page.tsx`, `routes/web.php`.
-8. **Buat peta proyek (AI, 1x panggilan):** input berupa file tree, manifest, README (dipotong), daftar titik masuk, dan ringkasan relasi. Hasil disimpan.
-9. Status menjadi `ready`.
+   - batasi ukuran setelah ekstrak dan jumlah entri.
+3. **Filter:** buang `node_modules`, `vendor`, `.git`, `dist`, `build`, `.next`, `out`, `coverage`, binary, gambar, font, dan file > 1 MB. **File sensitif** (`.env*`, `*.pem`, `*.key`, `id_rsa*`) tidak disimpan dan tidak ditampilkan.
+4. **Deteksi stack dan versi** dari `package.json`, `composer.json`, dan lockfile (lockfile hanya dibaca, tidak diindeks).
+5. **Indeks file:** isi teks dan full-text.
+6. **Parse (tanpa AI):**
+   - **PHP** (`nikic/php-parser`): class, method, function, `use`, panggilan statis dan method (`Auth::attempt`, `$request->validate`, `Model::create`), definisi route.
+   - **JS/TS/JSX/TSX** (skrip Node, TypeScript Compiler API, output JSON): import/export, fungsi, komponen (fungsi yang mengembalikan JSX), hooks, render komponen, `fetch`/`axios` dengan URL literal, `onSubmit`/`onClick`, server actions, `redirect`/`router.push`.
+   - **Blade** (regex): `@extends`, `@include`, `@section`, `<x-komponen>`, `<form action=…>`, `{{ route('…') }}`.
+7. **Bangun graf:**
+   - `symbols`: fungsi, class, komponen, dan sejenisnya.
+   - `file_relations`: import, include, extends, component.
+   - `call_edges`: call, render, fetch, form_submit, redirect.
+   - `routes`:
+     - Laravel: `Route::get/post/resource/…` → controller@method atau closure.
+     - Next.js App Router: `app/**/page.tsx` dan `app/**/route.ts` (method dari nama ekspor `GET`/`POST`/…).
+     - Next.js Pages Router: `pages/**` dan `pages/api/**`.
+   - **Penyambungan lintas batas:** URL literal di `fetch('/api/x')`, `<form action="/login">`, atau `route('login')` dicocokkan ke tabel `routes`.
+8. **Cocokkan aturan pola** (lihat 5.3) dan simpan ke `pattern_matches`.
+9. **Tentukan peran file** dari konvensi path dan isi. Contoh peran: Controller, Model, Migration, Route file, Blade layout, Halaman Next.js, API route, Komponen React, Hook, Config.
+10. **Buat peta proyek statis** (lihat 5.4).
+11. Status menjadi `ready`.
 
-### 4.3 Viewer
+Kalau parser gagal pada satu file, file itu ditandai `parse_status=failed` dan pipeline tetap jalan.
+
+### 5.3 Aturan pola (pattern rules)
+- Aturan disimpan sebagai file di repo (`resources/rules/{framework}/*.php`), di-versikan bersama kode dan di-cache saat runtime.
+- Setiap aturan berisi:
+  - `key`, misalnya `laravel.request.validate`,
+  - `framework` dan `language`,
+  - **matcher**: jenis node (call, static_call, import, jsx_attr, blade_directive, path) dan polanya,
+  - **capture** (opsional): misalnya daftar field yang divalidasi,
+  - **template teks** pemula dan teknis, dengan placeholder dari capture (contoh: "Mengecek input `{fields}` sebelum diproses."),
+  - **tag konsep** untuk link docs,
+  - **kategori alur** (input, validasi, auth, database, response, navigasi, state, efek samping) yang dipakai untuk ikon dan warna di diagram.
+- Target awal: **±40 aturan** (±20 Laravel, ±15 Next.js/React, ±5 umum).
+  - Contoh Laravel: `validate`, `Auth::attempt`, `Auth::user`, `middleware('auth')`, Eloquent `create/update/delete/where`, `DB::table`, `redirect()`, `back()->with()`, `view()`, `Mail::send`, `Storage::put`, `Http::get`.
+  - Contoh Next.js/React: `useState`, `useEffect`, `useRouter`/`router.push`, `fetch`, `"use client"`, `"use server"`/server actions, `generateMetadata`, `NextResponse.json`, `cookies()`, akses `process.env`.
+
+### 5.4 Peta proyek statis
+Dibuat sepenuhnya dari fakta:
+- **Ringkasan:** template berdasarkan stack. Contoh: "Proyek Laravel 11 dengan Blade dan Tailwind. Ada 8 halaman, 3 endpoint form, 5 tabel database."
+- **Statistik:** jumlah file, route, komponen, model, dan migration.
+- **Fungsi folder:** dari kamus konvensi per framework (`app/Http/Controllers` → "Pengatur logika setiap halaman", dst.). Folder di luar kamus ditampilkan sebagai "folder buatan proyek" beserta jumlah file dan peran dominannya.
+- **Titik masuk:** `routes/web.php`, `app/layout.tsx`, `src/main.tsx`, `index.html`, dll.
+- **Daftar route:** method, URI, dan handler (bisa diklik).
+- **Urutan baca:** titik masuk → route file → handler dengan relasi terbanyak → komponen/layout bersama → model. Maksimal 10 file, masing-masing dengan alasan template.
+
+### 5.5 Alur per route
+- User memilih route, lalu sistem menelusuri `call_edges` dari handler (kedalaman maks. 6, hanya simbol di dalam repo).
+- Setiap langkah diberi anotasi pola yang dikenali dan kategori alurnya.
+- Hasilnya ditampilkan sebagai:
+  - **diagram Mermaid** (bisa diklik ke file dan baris),
+  - **daftar langkah bernomor** dengan penjelasan template,
+  - **catatan "tidak terlacak"** untuk panggilan yang tidak bisa diselesaikan (dinamis atau dari paket luar).
+- Untuk Next.js, alur juga bisa dimulai dari halaman: `page.tsx` → komponen → form/fetch → API route → handler.
+
+### 5.6 Panel file
+Saat file dibuka, panel kanan menampilkan:
+1. **Peran file** beserta penjelasan template perannya.
+2. **Posisi di alur:** route yang melewati file ini.
+3. **Isi file:** daftar simbol. Klik simbol akan lompat ke barisnya.
+4. **Pola yang dikenali:** per rentang baris, dengan teks template sesuai level. Saat mengklik baris kode, pola di baris tersebut disorot.
+5. **Relasi:** dipanggil oleh dan memanggil.
+6. **Dampak perubahan:** jumlah dan daftar file yang bergantung (graf terbalik). Ada peringatan khusus untuk peran sensitif (migration, route file, layout, config).
+7. **Istilah dan docs:** tooltip glosarium dan link docs dari tag konsep.
+
+Semua data ini disusun sebagai **"lembar fakta" JSON** per file dan per route. Lembar fakta ini nantinya jadi input prompt di Part 2.
+
+### 5.7 Cari fitur (statis)
+- Input kata kunci, misalnya "login".
+- Diperluas dengan **kamus sinonim kurasi** (login → auth, signin, session, attempt; bayar → payment, checkout, order, midtrans, xendit, stripe).
+- Hasil diurutkan dari: nama route/URI → nama file/simbol → pola yang cocok (misalnya `Auth::attempt` untuk "login") → full-text isi.
+- Maksimal 10 hasil, masing-masing dengan alasan ("route `POST /login`", "memanggil `Auth::attempt`").
+- Query dan klik dicatat di `search_logs` untuk metrik dan desain Part 2.
+
+### 5.8 Viewer
 Tata letak tiga panel di desktop. Di mobile berubah jadi tab.
-- **Kiri:** file tree (dengan ikon titik masuk dan pencarian nama file).
-- **Tengah:** kode dengan syntax highlight dan nomor baris. Tersedia tombol **"Jelaskan file ini"**, dan saat user memblok baris muncul tombol **"Jelaskan baris ini"**.
-- **Kanan:** panel penjelasan. Isi default-nya **Peta Proyek**.
-- **Atas:** kolom **"Cari fitur…"** (tanya di mana kode X), pilihan level (Pemula/Teknis), tombol Share, dan peringatan "Penjelasan berdasarkan commit `abc1234`".
+- **Kiri:** file tree (ikon peran, penanda titik masuk) dan tab **Routes**.
+- **Tengah:** kode dengan syntax highlight, nomor baris, dan sorotan pola.
+- **Kanan:** Peta Proyek (default), Panel File, atau Alur Route. Ada slot "Penjelasan AI" yang disembunyikan sampai Part 2.
+- **Atas:** kolom cari fitur, pilihan level (Pemula/Teknis), tombol Share, dan info "Berdasarkan commit `abc1234`".
 
-### 4.4 Peta proyek
-- **Ini proyek apa:** 2–3 kalimat.
-- **Stack dan versi,** dengan link docs dari tabel kurasi.
-- **Struktur folder:** fungsi tiap folder utama.
-- **Titik masuk:** dari mana aplikasi mulai berjalan.
-- **Urutan baca yang disarankan:** 5–10 file, masing-masing dengan alasan.
-- **Diagram alur besar** (Mermaid), misalnya halaman → komponen → API → database.
+### 5.9 Glosarium, docs, share, feedback
+- **Glosarium:** ±40 istilah, ditampilkan sebagai tooltip otomatis di teks penjelasan.
+- **Docs:** tag konsep diambil dari aturan pola, URL dari tabel kurasi `concept_links` sesuai versi.
+- **Share:** `/r/{owner}/{repo}/{sha7}`, read-only, tanpa login.
+- **Feedback:** 👍/👎 pada panel file, alur route, peta proyek, dan hasil cari.
 
-Level pemula dibuat saat pipeline. Level teknis dibuat saat pertama kali diminta, lalu di-cache.
+## 6. Aturan penting Part 1
+- **Batas repo:** maks 50 MB zip, 200 MB setelah diekstrak, 2.000 file teks, 1 MB per file. Waktu parse maks 3 menit per analisis.
+- **Batas pemakaian:** 5 analisis baru per IP per hari (diatur lewat config). Membuka hasil dan link share tidak dibatasi.
+- **Keamanan:**
+  - Hanya `github.com`.
+  - Ekstraksi zip aman.
+  - File sensitif tidak disimpan.
+  - **Kode repo tidak pernah dijalankan,** hanya diurai. Skrip parser Node berjalan dengan batas waktu dan memori, tanpa akses jaringan.
+  - Semua isi dari repo di-escape saat dirender. Mermaid memakai `securityLevel: 'strict'`.
+  - IP disimpan sebagai hash + salt.
+- **Cache:** kunci `(owner, repo, commit_sha)`, dengan owner dan repo dinormalisasi ke huruf kecil.
+- **Retensi:** zip dihapus setelah diproses. Hasil analisis disimpan 30 hari, lalu isi file dan data graf dihapus oleh scheduled command.
 
-### 4.5 Jelaskan file atau baris
-1. User mengklik "Jelaskan file ini" atau memblok baris (maks **200 baris** per permintaan).
-2. Cek cache berdasarkan (file, baris awal, baris akhir, level).
-3. Kalau belum ada di cache, susun konteks:
-   - potongan kode yang dipilih,
-   - nama file dan bahasanya,
-   - stack dan versi,
-   - daftar file yang memanggil dan dipanggil (dari relasi statis),
-   - tanda tangan fungsi atau ekspor dari file terkait (bukan isi penuh).
-4. Model menengah menulis penjelasan dalam format JSON terstruktur (lihat bagian 6).
-5. Simpan dan kembalikan hasilnya.
+## 7. Metrik sukses Part 1
+- Analisis berhasil ≥ 90%.
+- File berhasil di-parse ≥ 95% (untuk bahasa yang didukung).
+- **Cakupan pola ≥ 60%:** persentase file (Laravel/Next.js, di luar config dan aset) yang punya minimal 1 pola dikenali.
+- Route berhasil disambungkan ke handler ≥ 80% (Laravel/Next.js).
+- Rata-rata file atau route yang dibuka per analisis ≥ 5.
+- Pencarian yang diikuti klik hasil ≥ 50%.
+- Feedback 👍 ≥ 70%.
+- Link share dibuka oleh IP lain selain pembuatnya.
 
-### 4.6 Cari fitur ("kode X di mana?")
-1. User mengetik pertanyaan, misalnya "di mana kode login?".
-2. Cek cache berdasarkan (analisis, hash pertanyaan yang dinormalisasi, level).
-3. Cari kandidat lewat full-text search (kata kunci hasil ekstraksi sederhana dan sinonim umum, misalnya login → auth, signin, session), lalu tambahkan nama file dan route.
-4. Model kecil memilih maksimal 5 lokasi (file + rentang baris) dan menulis alasan singkat untuk tiap lokasi.
-5. Hasil ditampilkan sebagai daftar yang bisa diklik. Klik akan membuka file di baris tersebut dan bisa langsung dijelaskan.
+## 8. Syarat lanjut ke Part 2
+Lanjut ke Part 2 kalau:
+- ada ≥ 100 analisis dari user nyata,
+- cakupan pola ≥ 60%, dan
+- feedback atau pencarian menunjukkan user butuh penjelasan logika khusus atau "kenapa", yang tidak bisa dijawab template.
 
-### 4.7 Docs resmi dan glosarium
-- AI hanya mengeluarkan **tag konsep** (misalnya `laravel.validation`, `react.useEffect`). URL docs diambil dari tabel kurasi `concept_links`, disesuaikan dengan versi yang terdeteksi. Tag yang tidak ada di tabel diabaikan.
-- Istilah di glosarium (API, state, props, route, middleware, dsb.) otomatis diberi tooltip di teks penjelasan.
+---
 
-### 4.8 Share link
-- Format: `/r/{owner}/{repo}/{sha7}`, bisa dibuka tanpa login.
-- Isinya peta proyek dan semua penjelasan yang sudah di-cache. Penjelasan baru dari pengunjung link share tetap memakai kuota IP pengunjung tersebut.
+# PART 2: NARASI AI
 
-### 4.9 Feedback
-- Tombol 👍/👎 di setiap penjelasan, peta proyek, dan hasil cari fitur. Dipakai untuk metrik kualitas.
+## 9. Fitur Part 2
 
-## 5. Alur sistem
-```
-Submit URL repo
-  → validasi + ambil SHA → sudah ada & belum expired? → redirect ke hasil
-  → analyses(status=queued)
-  → job: fetching → indexing (filter, stack, indeks, relasi, titik masuk)
-         → summarizing (peta proyek, AI) → ready
-  → viewer (polling status tiap 2 detik selama belum ready)
+### 9.1 Jelaskan lebih dalam
+- Tombol ini muncul di panel file, di seleksi baris (maks. 200 baris), dan di alur route.
+- Alurnya:
+  1. Cek cache.
+  2. Susun prompt berisi **lembar fakta statis** (peran, pola, relasi, route), potongan kode, dan stack beserta versinya.
+  3. Claude Sonnet 5.5 menulis JSON terstruktur (lihat 9.5).
+  4. Validasi hasilnya, lalu simpan.
+- Output AI hanya boleh menyebut file yang ada di `repo_files`. Path lain dibuang.
 
-Jelaskan:  POST /api/analyses/{uuid}/explain {file_id, start_line, end_line, level}
-  → cache hit? kembalikan
-  : susun konteks → LLM menengah → validasi JSON → simpan → kembalikan
+### 9.2 Peta proyek AI
+- Narasi singkat proyek berdasarkan peta statis.
+- Dibuat saat diminta (tombol "Ceritakan proyek ini"), lalu di-cache per level.
 
-Cari fitur: POST /api/analyses/{uuid}/ask {question, level}
-  → cache hit? kembalikan
-  : full-text kandidat → LLM kecil pilih & beri alasan → simpan → kembalikan
-```
+### 9.3 Cari fitur dengan bahasa bebas
+- Kandidat diambil dari pencarian statis (5.7), maksimal 20.
+- Claude Haiku 5.5 memilih maksimal 5 lokasi dan memberi alasan.
+- Hasil di-cache per (analisis, hash pertanyaan, level).
 
-## 6. Format output AI
-Semua output AI berupa **JSON dengan skema tetap**, divalidasi di server. Kalau tidak valid, dicoba ulang 1x, lalu kembalikan error yang ramah.
+### 9.4 Kontrol biaya
+- **Kuota:** 20 permintaan AI per IP per hari. Hasil dari cache tidak dihitung.
+- **Batas global:** $5/hari, dihitung dari `ai_usage_logs`. Kalau terlewati, tombol AI dinonaktifkan sementara dengan pesan ramah. Fitur statis tetap jalan.
+- **Prompt caching** untuk instruksi sistem yang sama di setiap panggilan.
+- **Effort rendah atau sedang** untuk tugas menjelaskan, supaya token hemat.
+- **Spend limit di Claude Console** sebagai pengaman terakhir.
+- **Keamanan:**
+  - Kode repo dibungkus pembatas di prompt dan diperlakukan sebagai data, bukan instruksi.
+  - Output di-sanitize sebelum dirender.
+  - API key hanya ada di `.env` server.
 
+### 9.5 Format output AI
 **Penjelasan (explain):**
 ```json
 {
   "summary": "Ini apa (1–2 kalimat)",
-  "how_it_works": [
-    {"lines": [12, 18], "text": "Penjelasan bagian ini"}
-  ],
-  "why": "Kenapa ditulis begini, dan alternatif yang umum",
-  "connections": {
-    "called_by": [{"path": "app/page.tsx", "reason": "..."}],
-    "calls": [{"path": "lib/supabase.ts", "reason": "..."}]
-  },
-  "change_impact": "Kalau diubah, yang terpengaruh: ... Aman diubah: ... Hati-hati: ...",
-  "flow_mermaid": "flowchart LR ...",
-  "concept_tags": ["react.useEffect", "next.server-actions"],
+  "how_it_works": [{"lines": [12, 18], "text": "..."}],
+  "why": "Kenapa ditulis begini dan alternatif umum",
+  "change_impact": "Aman diubah: ... Hati-hati: ...",
+  "concept_tags": ["laravel.validation"],
   "confidence": "high | medium | low"
 }
 ```
+Relasi dan diagram tidak dibuat ulang oleh AI, karena sudah tersedia dari Part 1.
 
-**Peta proyek (overview):**
+**Peta proyek AI (overview):**
 ```json
-{
-  "summary": "...",
-  "folders": [{"path": "app/", "purpose": "..."}],
-  "entry_points": [{"path": "app/layout.tsx", "purpose": "..."}],
-  "reading_order": [{"path": "...", "why": "..."}],
-  "flow_mermaid": "flowchart TD ...",
-  "concept_tags": ["next.app-router"]
-}
+{ "summary": "...", "highlights": ["..."], "concept_tags": ["next.app-router"] }
 ```
 
 **Cari fitur (ask):**
 ```json
 {
-  "answer": "Ringkasan jawaban",
-  "locations": [
-    {"path": "app/login/page.tsx", "start_line": 1, "end_line": 40, "reason": "..."}
-  ],
+  "answer": "...",
+  "locations": [{"path": "...", "start_line": 1, "end_line": 40, "reason": "..."}],
   "confidence": "high | medium | low"
 }
 ```
 
-Path di output AI dicocokkan ulang dengan `repo_files`. Path yang tidak ada dibuang supaya tidak ada file halusinasi.
+Tag konsep yang tidak ada di tabel `concepts` dicatat di `unknown_concept_tags`, sebagai bahan kurasi berikutnya.
 
-## 7. Aturan penting
-- **Batas repo:** maks 50 MB zip, 200 MB setelah diekstrak, 2.000 file teks yang diindeks, 1 MB per file.
-- **Batas pemakaian gratis (per IP per hari, diatur lewat config):** 3 analisis baru, 30 permintaan AI (explain dan ask). Hasil yang diambil dari cache tidak dihitung.
-- **Batas permintaan:** maks 200 baris per explain, maks 200 karakter per pertanyaan.
-- **Keamanan:**
-  - Hanya `github.com`. Karena tidak ada URL web live di MVP 1, tidak ada risiko SSRF dari sisi itu.
-  - Ekstraksi zip aman: tanpa path traversal, symlink, atau zip bomb.
-  - Isi repo **dianggap data tidak tepercaya.** Di prompt, kode dibungkus pembatas yang jelas, dan instruksi sistem menegaskan bahwa isi repo bukan perintah.
-  - Output AI di-escape atau di-sanitize sebelum dirender. Markdown dirender tanpa HTML mentah, dan Mermaid memakai `securityLevel: 'strict'`.
-  - File sensitif (`.env*`, kunci, sertifikat) tidak disimpan dan tidak ditampilkan.
-  - IP disimpan dalam bentuk hash (dengan salt), bukan IP asli.
-- **Cache:** kunci utama adalah `(owner, repo, commit_sha)`. Repo dengan commit yang sama tidak diproses ulang. Owner dan repo dinormalisasi ke huruf kecil.
-- **Retensi:** zip dan folder ekstrak dihapus setelah diindeks. Hasil analisis disimpan 30 hari (bisa diatur), setelah itu isi file dan cache penjelasan dihapus oleh scheduled command.
-
-## 8. Metrik sukses
-- Analisis berhasil ≥ 90%.
-- Waktu sampai `ready` untuk repo < 300 file: p50 < 45 detik.
-- Rata-rata permintaan explain/ask per analisis ≥ 5.
-- Penjelasan dinilai 👍 ≥ 80% dari yang memberi nilai.
-- Cari fitur menunjuk file yang benar (dinilai manual pada sampel) ≥ 70%.
-- Biaya AI rata-rata per analisis < target yang ditetapkan (dipantau lewat `ai_usage_logs`).
-- Link share dibuka oleh IP lain selain pembuatnya.
-
-## 9. Tahapan
-- **MVP 1 (± 2 minggu):** semua fitur di dokumen ini.
-  - Minggu 1: skema DB, form + rate limit, pipeline (fetch, filter, stack, indeks, relasi), viewer file tree + kode.
-  - Minggu 2: peta proyek, explain, cari fitur, glosarium + docs kurasi (seeder), share link, feedback, cleanup terjadwal, deploy.
-- **MVP 2:** input URL web live, screenshot (Browsershot), klik elemen → dipetakan ke file memakai indeks dan relasi dari MVP 1. Termasuk proteksi SSRF tingkat jaringan.
-- **V2:** browser extension, lebih banyak framework, kuis belajar, Bahasa Inggris.
-- **V3:** login GitHub, repo private, pembayaran, riwayat analisis.
-
-## 10. Pertanyaan terbuka
-1. Nama dan domain final?
-2. Batas gratis persisnya (default sementara: 3 analisis, 30 permintaan AI per hari)?
-3. Penyedia model AI dan target biaya per analisis?
-4. Hosting: VPS mana? (MVP 1 tidak butuh Chromium, jadi kebutuhannya cukup PHP, queue worker, dan MySQL.)
-5. Daftar awal konsep kurasi dan glosarium: berapa banyak untuk rilis pertama (usul: ±80 konsep, ±50 istilah)?
+## 10. Metrik sukses Part 2
+- Penjelasan AI dinilai 👍 ≥ 80%.
+- Cari fitur AI menunjuk file yang benar (dinilai manual pada sampel) ≥ 70%.
+- Biaya AI rata-rata < $0,20 per analisis yang memakai AI.
+- Persentase analisis yang memakai minimal 1 fitur AI (mengukur minat).
 
 ---
 
-# Skema Database (Laravel migration, MySQL 8 / SQLite)
+## 11. Tahapan
+**Part 1 (± 3 minggu)**
+- **Minggu 1, fondasi:**
+  - skema DB, form + Turnstile + rate limit,
+  - pipeline (fetch, filter, stack, indeks),
+  - viewer (file tree + kode).
+- **Minggu 2, parser dan graf:**
+  - parser PHP, skrip parser JS/TS, regex Blade,
+  - `symbols`, `file_relations`, `call_edges`, `routes`,
+  - penyambungan lintas batas, peran file.
+- **Minggu 3, makna dan rilis:**
+  - ±40 aturan pola dan templatenya, peta proyek statis,
+  - alur per route, panel file, cari fitur,
+  - seeder glosarium, docs, dan sinonim,
+  - share, feedback, cleanup terjadwal, deploy.
+
+**Part 2 (± 1–2 minggu, setelah syarat di bagian 8 terpenuhi)**
+- Integrasi Claude API, lembar fakta ke prompt, explain, overview AI, ask.
+- Kuota, batas global, `ai_usage_logs`, uji kualitas dengan 10–20 repo contoh (bandingkan Sonnet dan Opus).
+
+**Setelah MVP 1**
+- **MVP 2:** URL web live, screenshot, klik elemen → node di graf Part 1.
+- **V2:** browser extension, framework lain (Vue, Nuxt, SvelteKit, Express), kuis belajar, Bahasa Inggris.
+- **V3:** login GitHub, repo private, pembayaran, riwayat analisis.
+
+## 12. Pertanyaan terbuka
+1. Domain final mana yang tersedia?
+2. Nama paket kurasi pertama: aturan, konsep, dan istilah mana yang masuk ±40 pertama? (Usul: urutkan dari yang paling sering muncul di template Lovable/Bolt/v0.)
+3. Perlu halaman "contoh analisis" (repo demo) di beranda untuk user yang belum punya repo?
+
+---
+
+# Skema Database (Laravel migration, MySQL 8)
 
 ## Diagram relasi
 ```
 analyses 1──* stack_detections
-analyses 1──* repo_files 1──* file_relations (from_file_id / to_file_id)
-analyses 1──* project_overviews (per level)
-analyses 1──* explanations *──1 repo_files
-analyses 1──* questions
-concepts 1──* concept_links          glossary_terms
-feedback (polimorfik: explanation / question / project_overview)
-ai_usage_logs
+analyses 1──* repo_files 1──* symbols
+analyses 1──* file_relations      (from_file → to_file)
+analyses 1──* call_edges          (from_symbol/file → to_symbol/file)
+analyses 1──* routes              (→ handler symbol)
+analyses 1──* pattern_matches     (→ file, symbol, rule_key)
+analyses 1──1 project_maps
+analyses 1──* search_logs
+concepts 1──* concept_links       glossary_terms     synonyms
+feedback (polimorfik)
+
+Part 2: explanations, ai_overviews, questions, ai_usage_logs, unknown_concept_tags
 ```
 
-## Tabel
+## Tabel Part 1
 
 ### analyses
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | id | bigint PK | |
-| uuid | uuid unique | dipakai di URL internal |
+| uuid | uuid unique | URL internal |
 | repo_owner | string(100) | huruf kecil |
 | repo_name | string(100) | huruf kecil |
-| branch | string(255) | branch yang dianalisis |
+| branch | string(255) | |
 | commit_sha | char(40) | |
-| status | enum(queued, fetching, indexing, summarizing, ready, failed) | |
-| error_message | text null | pesan ramah untuk user |
+| status | enum(queued, fetching, indexing, parsing, mapping, ready, failed) | |
+| error_message | text null | pesan ramah |
 | file_count | unsigned int default 0 | |
 | total_bytes | unsigned bigint default 0 | |
-| support_level | enum(full, basic) | full = stack yang didukung penuh |
-| ip_hash | char(64) | hash IP + salt |
+| support_level | enum(full, basic) | |
+| stats | json null | jumlah route, komponen, cakupan pola, dll. |
+| ip_hash | char(64) | |
 | expires_at | timestamp null | |
 | timestamps | | |
-| **index** | unique(repo_owner, repo_name, commit_sha) | reuse cache |
+| **index** | unique(repo_owner, repo_name, commit_sha) | |
 
 ### stack_detections
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | id | bigint PK | |
-| analysis_id | FK analyses cascade | |
-| name | string(50) | laravel, react, next, vite, tailwind, alpine, supabase, dll |
-| version | string(50) null | dari lockfile/manifest |
-| source_file | string(255) | package.json / composer.json / lockfile |
+| analysis_id | FK cascade | |
+| name | string(50) | laravel, next, react, vite, tailwind, supabase, … |
+| version | string(50) null | |
+| source_file | string(255) | |
 
 ### repo_files
 | Kolom | Tipe | Catatan |
@@ -282,12 +376,28 @@ ai_usage_logs
 | id | bigint PK | |
 | analysis_id | FK cascade | |
 | path | string(500) | |
-| language | string(30) | |
+| language | string(30) | php, blade, ts, tsx, js, jsx, html, css, … |
+| role | string(50) null | controller, model, migration, page, api_route, component, layout, … |
 | size_bytes | unsigned int | |
 | line_count | unsigned int | |
 | is_entry_point | boolean default false | |
+| parse_status | enum(parsed, skipped, failed) | |
 | content | longtext null | dikosongkan saat kedaluwarsa |
-| **index** | unique(analysis_id, path); FULLTEXT(path, content) | MySQL. Di SQLite pakai tabel virtual FTS5 |
+| **index** | unique(analysis_id, path); FULLTEXT(path, content) | |
+
+### symbols
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade | |
+| repo_file_id | FK cascade | |
+| parent_symbol_id | FK symbols null | method → class |
+| kind | enum(class, method, function, component, hook, route_handler, export, constant) | |
+| name | string(255) | |
+| signature | string(500) null | |
+| start_line / end_line | unsigned int | |
+| is_exported | boolean default false | |
+| **index** | (analysis_id, name), (repo_file_id) | |
 
 ### file_relations
 | Kolom | Tipe | Catatan |
@@ -295,125 +405,178 @@ ai_usage_logs
 | id | bigint PK | |
 | analysis_id | FK cascade | |
 | from_file_id | FK repo_files cascade | |
-| to_file_id | FK repo_files null | null kalau mengarah ke paket luar |
-| target_raw | string(500) | teks asli, misalnya `@/lib/db` atau `react` |
-| type | enum(import, include, extends, component, route) | |
-| line | unsigned int | baris di file asal |
+| to_file_id | FK repo_files null | null = paket luar |
+| target_raw | string(500) | `@/lib/db`, `react`, `layouts.app` |
+| type | enum(import, include, extends, component) | |
+| line | unsigned int | |
 | **index** | (analysis_id, from_file_id), (analysis_id, to_file_id) | |
 
-### project_overviews
+### call_edges
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | id | bigint PK | |
 | analysis_id | FK cascade | |
-| level | enum(pemula, teknis) | |
-| data | json | sesuai skema overview di bagian 6 |
-| model_used | string(100) | |
-| input_tokens / output_tokens | unsigned int | |
+| from_file_id | FK repo_files cascade | |
+| from_symbol_id | FK symbols null | |
+| to_file_id | FK repo_files null | |
+| to_symbol_id | FK symbols null | |
+| to_route_id | FK routes null | untuk fetch/form ke endpoint |
+| target_raw | string(500) | teks asli panggilan |
+| kind | enum(call, render, fetch, form_submit, redirect, dispatch) | |
+| line | unsigned int | |
+| resolved | boolean | false = "tidak terlacak" |
+| **index** | (analysis_id, from_symbol_id), (analysis_id, to_symbol_id) | |
+
+### routes
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade | |
+| source | enum(laravel, next_app, next_pages) | |
+| method | string(10) | GET, POST, ANY, … |
+| uri | string(500) | `/login`, `/api/users/[id]` |
+| name | string(255) null | nama route Laravel |
+| kind | enum(page, api) | |
+| defined_in_file_id | FK repo_files | |
+| defined_at_line | unsigned int null | |
+| handler_symbol_id | FK symbols null | |
+| handler_raw | string(500) null | |
+| middleware | json null | |
+| **index** | (analysis_id, uri), (analysis_id, name) | |
+
+### pattern_matches
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade | |
+| repo_file_id | FK cascade | |
+| symbol_id | FK symbols null | |
+| rule_key | string(100) | `laravel.request.validate` |
+| category | enum(input, validation, auth, database, response, navigation, state, side_effect, config, other) | |
+| start_line / end_line | unsigned int | |
+| captures | json null | misalnya `{"fields": ["email", "password"]}` |
+| **index** | (analysis_id, repo_file_id), (analysis_id, rule_key) | |
+
+### project_maps
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade, unique | |
+| data | json | ringkasan, statistik, folder, titik masuk, urutan baca |
 | timestamps | | |
-| **index** | unique(analysis_id, level) | cache |
+
+### search_logs
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade | |
+| query | string(200) | |
+| result_count | unsigned smallint | |
+| clicked_file_id | FK repo_files null | diisi saat hasil diklik |
+| ip_hash | char(64) | |
+| created_at | timestamp | |
+
+### concepts, concept_links, glossary_terms
+| Tabel | Kolom utama |
+|---|---|
+| concepts | id, tag (unique), framework, title_id, short_description |
+| concept_links | id, concept_id (FK), version_pattern (`11.x`, `14`, `*`), url, language |
+| glossary_terms | id, term (unique), aliases (json), definition_pemula, definition_teknis |
+
+### synonyms
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| term | string(100) unique | `login` |
+| expansions | json | `["auth", "signin", "session", "attempt"]` |
+
+### feedback
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| id | bigint PK | |
+| analysis_id | FK cascade | |
+| target_type | enum(file, route_flow, project_map, search, explanation, ai_overview, question) | tiga terakhir untuk Part 2 |
+| target_ref | string(100) | id file/route/explanation, dll. |
+| level | enum(pemula, teknis) | |
+| rating | tinyint | 1 / -1 |
+| ip_hash | char(64) | |
+| created_at | timestamp | |
+| **index** | unique(analysis_id, target_type, target_ref, level, ip_hash) | |
+
+## Tabel Part 2
 
 ### explanations
 | Kolom | Tipe | Catatan |
 |---|---|---|
 | id | bigint PK | |
 | analysis_id | FK cascade | |
-| repo_file_id | FK repo_files cascade | |
-| start_line / end_line | unsigned int | 0/0 = seluruh file |
+| target_type | enum(file, lines, route) | |
+| repo_file_id | FK repo_files null | |
+| route_id | FK routes null | |
+| start_line / end_line | unsigned int | 0/0 untuk seluruh file/route |
 | level | enum(pemula, teknis) | |
-| summary | text | "ini apa" (untuk daftar/preview) |
-| data | json | sesuai skema explain di bagian 6 |
+| data | json | sesuai format 9.5 |
 | confidence | enum(high, medium, low) | |
 | model_used | string(100) | |
 | input_tokens / output_tokens | unsigned int | |
 | timestamps | | |
-| **index** | unique(repo_file_id, start_line, end_line, level) | cache |
+| **index** | unique(analysis_id, target_type, repo_file_id, route_id, start_line, end_line, level) | cache |
+
+### ai_overviews
+| Kolom | Tipe |
+|---|---|
+| id, analysis_id (FK), level, data (json), model_used, input_tokens, output_tokens, timestamps |
+| **index** unique(analysis_id, level) |
 
 ### questions
-| Kolom | Tipe | Catatan |
-|---|---|---|
-| id | bigint PK | |
-| analysis_id | FK cascade | |
-| question | string(200) | teks asli |
-| question_hash | char(64) | hash pertanyaan yang dinormalisasi (lowercase, trim, spasi tunggal) |
-| level | enum(pemula, teknis) | |
-| data | json | sesuai skema ask di bagian 6 |
-| model_used | string(100) | |
-| input_tokens / output_tokens | unsigned int | |
-| timestamps | | |
-| **index** | unique(analysis_id, question_hash, level) | cache |
-
-### concepts
-| Kolom | Tipe | Catatan |
-|---|---|---|
-| id | bigint PK | |
-| tag | string(100) unique | `laravel.validation` |
-| framework | string(50) | laravel, react, next, html, dst |
-| title_id | string | judul (Indonesia) |
-| short_description | text | |
-
-### concept_links
-| Kolom | Tipe | Catatan |
-|---|---|---|
-| id | bigint PK | |
-| concept_id | FK cascade | |
-| version_pattern | string(20) | `12.x`, `19`, `*` |
-| url | string(2048) | URL docs resmi |
-| language | char(2) | id/en |
-
-Penanda konsep di `explanations`, `project_overviews`, dan `questions` disimpan sebagai `concept_tags` di dalam kolom `data` (json), lalu diterjemahkan ke link saat dirender. Untuk MVP tidak perlu tabel pivot.
-
-### glossary_terms
-| Kolom | Tipe | Catatan |
-|---|---|---|
-| id | bigint PK | |
-| term | string(100) unique | API, state, route |
-| aliases | json null | variasi penulisan |
-| definition_pemula | text | |
-| definition_teknis | text | |
-
-### feedback
-| Kolom | Tipe | Catatan |
-|---|---|---|
-| id | bigint PK | |
-| target_type | enum(explanation, question, project_overview) | |
-| target_id | bigint | |
-| rating | tinyint | 1 = 👍, -1 = 👎 |
-| ip_hash | char(64) | |
-| created_at | timestamp | |
-| **index** | unique(target_type, target_id, ip_hash) | satu nilai per IP |
+| Kolom | Tipe |
+|---|---|
+| id, analysis_id (FK), question (string 200), question_hash (char 64), level, data (json), model_used, input_tokens, output_tokens, timestamps |
+| **index** unique(analysis_id, question_hash, level) |
 
 ### ai_usage_logs
 | Kolom | Tipe |
 |---|---|
-| id | bigint PK |
-| analysis_id | FK null |
-| purpose | enum(overview, explain, ask) |
-| model | string(100) |
-| input_tokens / output_tokens | unsigned int |
-| cost_usd | decimal(10,6) |
-| created_at | timestamp |
+| id, analysis_id (FK null), purpose enum(explain, overview, ask), model, input_tokens, output_tokens, cache_read_tokens, cost_usd decimal(10,6), ip_hash, created_at |
+
+### unknown_concept_tags
+| Kolom | Tipe |
+|---|---|
+| id, tag (unique), count (unsigned int), last_seen_at |
 
 ## Catatan implementasi
-- Rate limit pakai `RateLimiter` Laravel (cache). Tidak perlu tabel.
-- Queue pakai driver `database` (tabel bawaan `jobs` dan `failed_jobs`). Pipeline dipecah per tahap supaya status bisa dipantau dan dicoba ulang.
-- Full-text: di MySQL, FULLTEXT memecah kata di tanda `-`, jadi tambahkan juga pencarian `LIKE` pada `path` untuk nama file/komponen. Di SQLite pakai FTS5 dengan tokenizer `unicode61` ditambah `tokenchars '-_'`.
-- Model AI dan harga per token disimpan di config/env supaya mudah diganti.
-- Scheduled command harian: kosongkan `content` di `repo_files` dan hapus cache AI untuk analisis yang sudah melewati `expires_at`.
-- Tabel `concepts`, `concept_links`, dan `glossary_terms` diisi lewat seeder. Ini aset kurasi yang dikelola sendiri.
+- **Queue:** driver `database`. Pipeline dipecah per tahap (fetch → index → parse → map), masing-masing job bisa dicoba ulang dan memperbarui `status`.
+- **Parser JS/TS:** skrip Node terpisah (`parser-js/`) dipanggil lewat Symfony Process. Input berupa daftar path, output JSON (simbol, import, panggilan, JSX render, fetch). Ada batas waktu, memori, dan tanpa jaringan.
+- **Aturan pola:** file PHP di `resources/rules/`, divalidasi saat boot, dan diuji dengan fixture (potongan kode contoh → pola yang diharapkan).
+- **Kamus konvensi folder** dan **template peran file** disimpan sebagai file bahasa (`lang/id/roles.php`, `lang/id/folders.php`).
+- **Rate limit:** `RateLimiter` Laravel (cache).
+- **Full-text MySQL:** FULLTEXT memecah kata di tanda `-`. Untuk nama file dan simbol, tambahkan juga pencarian `LIKE` dan indeks `symbols.name`.
+- **Scheduled command harian:** hapus data analisis yang sudah melewati `expires_at` (isi file, graf, cache AI).
+- **Seeder:** `concepts`, `concept_links`, `glossary_terms`, dan `synonyms` adalah aset kurasi yang dikelola sendiri.
+- **Part 2:** API key Claude di `.env`. Nama model dan harga per token di config.
 
 ## Endpoint
+**Part 1**
 | Method | Path | Fungsi |
 |---|---|---|
 | GET | / | halaman form |
-| POST | /analyses | submit URL repo (Turnstile + rate limit) |
-| GET | /analyses/{uuid} | halaman viewer |
-| GET | /r/{owner}/{repo}/{sha7} | halaman share (viewer read-only) |
-| GET | /api/analyses/{uuid} | status + metadata + stack |
-| GET | /api/analyses/{uuid}/tree | file tree |
-| GET | /api/analyses/{uuid}/files/{file_id} | isi file + relasi masuk/keluar |
-| GET | /api/analyses/{uuid}/overview?level= | peta proyek (dibuat kalau belum ada) |
-| POST | /api/analyses/{uuid}/explain | `{file_id, start_line, end_line, level}` |
+| POST | /analyses | submit URL repo |
+| GET | /analyses/{uuid} | viewer |
+| GET | /r/{owner}/{repo}/{sha7} | viewer share (read-only) |
+| GET | /api/analyses/{uuid} | status, metadata, stack, statistik |
+| GET | /api/analyses/{uuid}/tree | file tree + peran |
+| GET | /api/analyses/{uuid}/map | peta proyek statis |
+| GET | /api/analyses/{uuid}/routes | daftar route |
+| GET | /api/analyses/{uuid}/routes/{route_id}/flow | alur route (langkah + Mermaid) |
+| GET | /api/analyses/{uuid}/files/{file_id} | isi file + lembar fakta |
+| GET | /api/analyses/{uuid}/search?q= | cari fitur statis |
+| POST | /api/analyses/{uuid}/search/{log_id}/click | catat klik hasil |
+| POST | /api/feedback | `{target_type, target_ref, level, rating}` |
+| GET | /api/glossary | istilah untuk tooltip |
+
+**Part 2**
+| Method | Path | Fungsi |
+|---|---|---|
+| POST | /api/analyses/{uuid}/explain | `{target_type, file_id?, route_id?, start_line?, end_line?, level}` |
+| GET | /api/analyses/{uuid}/ai-overview?level= | peta proyek AI |
 | POST | /api/analyses/{uuid}/ask | `{question, level}` |
-| POST | /api/feedback | `{target_type, target_id, rating}` |
-| GET | /api/glossary | daftar istilah (untuk tooltip, di-cache di browser) |
